@@ -1,0 +1,166 @@
+#!/bin/bash
+
+# MIT License
+#
+# Copyright (c) 2019 alextrv
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+
+get_os() {
+  if [ $(uname -m) = "x86_64" ]; then
+    echo "linux64"
+  else
+    echo "linux"
+  fi
+}
+
+get_arch() {
+  if [ $(uname -m) = "x86_64" ]; then
+    echo "x86_64"
+  else
+    echo "i686"
+  fi
+}
+
+PARENT_INSTALL_PATH="/opt"
+INSTALL_PATH="$PARENT_INSTALL_PATH/firefox"
+FF_LANG="en-US"
+OS_ARCH=$(get_arch)
+OS_NAME=$(get_os)
+DOWNLOAD_URL="https://download.mozilla.org/?product=firefox-latest-ssl&os=$OS_NAME&lang=$FF_LANG"
+TMP_DOWNLOAD_PATH="/tmp/firefox_archive."
+ARCHIVE_NAME="firefox.tar.bz2"
+BIN_PATH="/usr/bin"
+APP_NAME="firefox"
+INSTALLER_NAME=${0##*/}
+DESKTOP_FILE_PATH="/usr/share/applications/firefox-official.desktop"
+
+SUDO="sudo"
+if [[ $(whoami) = "root" ]]; then
+  SUDO=""
+fi
+
+show_usage() {
+  echo "Usage: $INSTALLER_NAME OPTION
+Only one option can be used at the same time.
+
+Options:
+  -i, --install     Install or update (if installed) Firefox from official website
+  -u, --uninstall   Uninstall Firefox
+  -s, --status      Show installed and upstream Firefox versions
+  "
+}
+
+
+do_cleanup() {
+ rm -rf "$TMP_DOWNLOAD_PATH"*
+}
+
+error() {
+  do_cleanup
+  exit 1
+}
+
+create_desktop_file() {
+  $SUDO echo "[Desktop Entry]
+Name=Firefox Web Browser
+GenericName=Web Browser
+
+Type=Application
+Categories=Network;WebBrowser;
+Exec=$BIN_PATH/$APP_NAME
+Icon=$INSTALL_PATH/browser/chrome/icons/default/default128.png" | \
+  $SUDO tee $DESKTOP_FILE_PATH > /dev/null
+}
+
+check_sum() {
+  UPSTREAM=$(get_upstream)
+  FF_PATH="linux-$OS_ARCH/$FF_LANG/$APP_NAME-$UPSTREAM.tar.bz2"
+  CHECKSUM_FILE_URL="https://download-installer.cdn.mozilla.net/pub/firefox/releases/$UPSTREAM/SHA512SUMS"
+  wget -nv -O - $CHECKSUM_FILE_URL | \
+  grep $FF_PATH | \
+  sed 's#'"$FF_PATH"'#'"$TMP_DOWNLOAD_PATH"/"$ARCHIVE_NAME"'#' | \
+  sha512sum -c - || error
+}
+
+install() {
+  read -p "Download and install/update Firefox? [y/n] " CONFIRM
+  if [[ $CONFIRM =~ ^[yY]$ ]]; then
+    do_cleanup
+    TMP_DOWNLOAD_PATH=$(mktemp -d "$TMP_DOWNLOAD_PATH"XXXXXXXX) && \
+    wget -nv --show-progress $DOWNLOAD_URL -O $TMP_DOWNLOAD_PATH/$ARCHIVE_NAME && \
+    check_sum && \
+    $SUDO rm -rf $INSTALL_PATH && \
+    $SUDO tar -C $PARENT_INSTALL_PATH -xjvf $TMP_DOWNLOAD_PATH/$ARCHIVE_NAME && \
+    $SUDO ln -i -s $INSTALL_PATH/$APP_NAME $BIN_PATH/$APP_NAME && \
+    create_desktop_file
+    echo "Firefox installed successfully"
+    do_cleanup
+    exit 0
+  fi
+}
+
+uninstall() {
+  read -p "Do you really want to uninstall Firefox? [y/n] " CONFIRM
+  if [[ $CONFIRM =~ ^[yY]$ ]]; then
+    if [ -d $INSTALL_PATH ]; then
+      $SUDO rm -fv $DESKTOP_FILE_PATH
+      [ $(realpath $BIN_PATH/$APP_NAME) = $INSTALL_PATH/$APP_NAME ] && \
+        $SUDO rm -fv $BIN_PATH/$APP_NAME
+      $SUDO rm -rfv $INSTALL_PATH && \
+      echo "Firefox uninstalled successfully"
+    else
+      echo "Nothing to uninstall. Firefox isn't installed"
+    fi
+  fi
+}
+
+get_upstream() {
+  wget $DOWNLOAD_URL -O /dev/null --max-redirect=0 2>&1 | \
+  grep Location | \
+  awk -F / '{print $NF}' | \
+  awk 'match($0, /[0-9]+\.[0-9]+[a-zA-Z0-9]*(\.[0-9]+[a-zA-Z]*)?/){print substr($0, RSTART, RLENGTH)}'
+}
+
+get_installed() {
+  $INSTALL_PATH/$APP_NAME -v 2>/dev/null | cut -d ' ' -f 3
+}
+
+check_status() {
+  echo "Installed Firefox version: $(get_installed)"
+  echo "Upstream Firefox version:  $(get_upstream)"
+}
+
+if [ $# -ne 1 ]; then
+  show_usage
+  error
+fi
+
+case $1 in
+  -i | --install)
+    install;;
+  -u | --uninstall)
+    uninstall;;
+  -s | --status)
+    check_status;;
+  *)
+    show_usage
+    error;;
+esac
