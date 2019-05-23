@@ -86,7 +86,20 @@ GenericName=Web Browser
 Type=Application
 Categories=Network;WebBrowser;
 Exec=$BIN_PATH/$APP_NAME
-Icon=$INSTALL_PATH/browser/chrome/icons/default/default128.png" | \
+Icon=$INSTALL_PATH/browser/chrome/icons/default/default128.png
+Actions=NewWindow;NewPrivateWindow;ProfileManager;
+
+[Desktop Action NewWindow]
+Name=Open a New Window
+Exec=$BIN_PATH/$APP_NAME -new-window
+
+[Desktop Action NewPrivateWindow]
+Name=Open a New Private Window
+Exec=$BIN_PATH/$APP_NAME -private-window
+
+[Desktop Action ProfileManager]
+Name=Start with ProfileManager
+Exec=$BIN_PATH/$APP_NAME -ProfileManager" | \
   $SUDO tee $DESKTOP_FILE_PATH > /dev/null
 }
 
